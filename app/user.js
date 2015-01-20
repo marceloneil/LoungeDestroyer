@@ -1,5 +1,5 @@
 /*
-    For those who don't know how to behave
+ For those who don't know how to behave
  */
 var bannedUsers = ["76561198141832677"];
 
@@ -47,11 +47,11 @@ User.prototype.defaultSettings =
 };
 
 User.prototype.loadUserSettings = function(callback) {
-	if (!(this instanceof User)) {
-		throw new TypeError("'this' must be instance of User");
-	}
+    if (!(this instanceof User)) {
+        throw new TypeError("'this' must be instance of User");
+    }
 
-	var self = this;
+    var self = this;
 
     chrome.storage.local.get("userSettings", function(result) {
         if(jQuery.isEmptyObject(result)) {
@@ -62,16 +62,17 @@ User.prototype.loadUserSettings = function(callback) {
         else {
             var storageUserSettings = JSON.parse(result.userSettings);
 
-            $.each(storageUserSettings, function(index, value) {
-                self.userSettings[index] = value;
-            });
+            $.extend(self.userSettings, storageUserSettings);
 
-            $.each(self.defaultSettings, function(index, value) {
-                if (typeof storageUserSettings[index] == 'undefined') {
-                    console.log("New user setting missing in local storage, setting it now");
-                    self.saveSetting(index, value);
-                }
-            });
+            // restrict options
+            self.userSettings.autoDelay = Math.max(2, self.userSettings.autoDelay);
+
+            /*$.each(self.defaultSettings, function(index, value) {
+             if (typeof storageUserSettings[index] == 'undefined') {
+             console.log("New user setting missing in local storage, setting it now");
+             self.saveSetting(index, value);
+             }
+             });*/
         }
         /* Start the scripterino */
         callback();
@@ -79,15 +80,15 @@ User.prototype.loadUserSettings = function(callback) {
 };
 
 User.prototype.saveSetting = function(settingName, settingValue) {
-	if (!(this instanceof User)) {
-		throw new TypeError("'this' must be instance of User");
-	}
+    if (!(this instanceof User)) {
+        throw new TypeError("'this' must be instance of User");
+    }
 
     this.userSettings[settingName] = settingValue;
     chrome.storage.local.set({"userSettings": JSON.stringify(this.userSettings)});
     /*
-        Inform background page and content script about setting changes here
-    */
+     Inform background page and content script about setting changes here
+     */
     var theSetting = {};
     theSetting[settingName] = settingValue; // just pass this to sendMessage
     chrome.runtime.sendMessage({changeSetting: theSetting}); // sending it to background.js
