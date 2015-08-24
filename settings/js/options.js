@@ -33,7 +33,7 @@ function restore_options() {
         });
 
         // display the keywords list
-        $("#hideTradesFilter,#markTradesFilter").each(function(){
+        $("#showTradesFilter, #hideTradesFilter, #hideTradesItemsHave, #hideTradesItemsWant").each(function(){
             parseAndDisplayKeywords.apply(this);
         });
 
@@ -119,6 +119,14 @@ function restore_options() {
         defaultUser.restoreDefaults();
         document.location.reload();
     });
+    $("#refetchcsglvalues").click(function() {
+        var that = this;
+        that.disabled = true;
+        chrome.runtime.sendMessage({refetchCsglValues: true},
+            function(){
+                that.disabled = false;
+            });
+    });
     $("#reportlog").click(function() {
         $("#reportlog-textarea").show();
 
@@ -163,10 +171,10 @@ function restore_options() {
             a = new Audio(url);
         a.play();
     });
-    $("#hideTradesFilter, #markTradesFilter").on("change", function(){
+    $("#showTradesFilter, #hideTradesFilter, #hideTradesItemsHave, #hideTradesItemsWant").on("change", function(){
         var outp = parseAndDisplayKeywords.apply(this);
 
-        defaultUser.saveSetting(this.id+"Array", outp);
+        defaultUser.saveSetting(this.id + "Array", outp);
     });
 
     // handles extracting and displaying keywords. Should be used as event handler for input
@@ -179,14 +187,14 @@ function restore_options() {
         // get all text within quotes 
         input = input.replace(quoteRegexp, function(m1,m2,m3){
             if (m3.length && keywords.indexOf(m3) === -1) {
-                keywords.push(m3.trim().toLowerCase()); // push the content (sans quotes) to keywords
+                keywords.push(m3.trim()); // push the content (sans quotes) to keywords
             }
             return ""; // remove from string
         });
         // get all words (separated by whitespace)
         input.replace(/[^\s]+/g, function(m1){
             if (m1.length && keywords.indexOf(m1) === -1) {
-                keywords.push(m1.trim().toLowerCase()); // push word to keywords
+                keywords.push(m1.trim()); // push word to keywords
             }
             return "";
         });
@@ -317,6 +325,16 @@ $(".ld-setting select, .ld-setting input").on('change', function() {
                 return;
             }
         }
+    }
+
+    if(this.id == 'bettingValuesCsgo' && this.value == '1') {
+        console.log('Fetching betting values for CS:GO Lounge now');
+        chrome.runtime.sendMessage({refetchCsglValues: true}, function() {});
+    }
+
+    if(this.id == 'useCachedPriceList' && this.value == '1') {
+        console.log('Fetching market price list');
+        chrome.runtime.sendMessage({refetchMarketPriceList: true}, function() {});
     }
 
     // save setting

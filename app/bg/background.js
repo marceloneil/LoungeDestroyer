@@ -211,6 +211,24 @@ chrome.extension.onMessage.addListener(function(request, sender, sendResponse) {
             return true;
         }
     }
+
+    if (request.hasOwnProperty('refetchCsglValues')) {
+        updateCsgoloungeItemValues(sendResponse);
+        if (sendResponse) {
+            return true;
+        }
+    }
+
+    if (request.hasOwnProperty('openSettings')) {
+        var optionsUrl = chrome.extension.getURL('settings/options.html');
+        chrome.tabs.query({url: optionsUrl}, function(tabs) {
+            if (tabs.length) {
+                chrome.tabs.update(tabs[0].id, {active: true});
+            } else {
+                chrome.tabs.create({url: optionsUrl});
+            }
+        });
+    }
 });
 
 /**
@@ -281,22 +299,26 @@ chrome.webRequest.onHeadersReceived.addListener(function(details) {
     },
     ['responseHeaders', 'blocking']
 );
-var lastBackpackAjaxData = null;
+
+var lastBackpackAjaxData = [];
 
 chrome.webRequest.onBeforeRequest.addListener(function(details) {
-        lastBackpackAjaxData = {
+        console.log('onbefore url ' + details.url);
+        lastBackpackAjaxData[details.url] = {
             url: details.url,
             method: details.method
         };
 
-        var postData = null;
+        var postData = [];
 
-        if(details.requestBody.formData && details.method === 'POST') {
+        console.log(details.requestBody);
+
+        if(details.method === 'POST' && details.hasOwnProperty('requestBody') && details.requestBody.hasOwnProperty('formData')) {
             $.each(details.requestBody.formData, function(postDataIndex, postDataValue) {
                 postData[postDataIndex] = postDataValue[0];
             });
         }
-        lastBackpackAjaxData['data'] = postData;
+        lastBackpackAjaxData[details.url]['data'] = postData;
     },
 
     {
@@ -307,8 +329,8 @@ chrome.webRequest.onBeforeRequest.addListener(function(details) {
 
 chrome.webRequest.onCompleted.addListener(function(details) {
         console.log('Backpack AJAX request detected with URL ', details.url, +new Date());
-        console.log(lastBackpackAjaxData);
-        var message = {inventory: lastBackpackAjaxData};
+        console.log(lastBackpackAjaxData[details.url]);
+        var message = {inventory: lastBackpackAjaxData[details.url]};
         sendMessageToContentScript(message, details.tabId);
     },
 
@@ -338,6 +360,18 @@ chrome.webRequest.onBeforeRequest.addListener(function requestListener(details) 
     {
         urls: ['*://csgolounge.com/audio/*', '*://dota2lounge.com/audio/*'],
         types: ['other']
+    },
+    ['blocking']
+);
+
+chrome.webRequest.onBeforeRequest.addListener(function(details) {
+        if(LoungeUser.userSettings.disableStylesheetLoading === '1') {
+            return {cancel: true}
+        }
+    },
+    {
+        urls: ['*://csgolounge.com/css/*', '*://dota2lounge.com/css/*'],
+        types: ['stylesheet']
     },
     ['blocking']
 );
@@ -419,7 +453,10 @@ function checkNewMatches(ajaxResponse, appID) {
         // We do not want to overwhelm user with many new matches
         if (newMatchesCount <= 3) {
             $.each(matchesToNotificate, function(index, value) {
-                var msg = (value.teamA.length > 0) ? (value.teamA + ' vs. ' + value.teamB + ' @ ' + value.tournamentName + '\nMatch begins ' + value.timeFromNow) : (value.tournamentName + '\nMatch begins ' + value.timeFromNow);
+                var msg = (value.teamA.length > 0) ?
+                    (value.teamA + ' vs. ' + value.teamB + ' @ ' + value.tournamentName + (value.bestOf ? ', ' + value.bestOf : '') + '\nMatch begins ' + value.timeFromNow) :
+                    (value.tournamentName + '\nMatch begins ' + value.timeFromNow);
+
                 createNotification(
                     'A new ' + (appID == 730 ? 'CS:GO' : 'DOTA2') + ' match has been added!',
                     msg,
@@ -453,6 +490,10 @@ function checkForNewTradeOffers(data, appID) {
             success: function(data) {
                 var doc = document.implementation.createHTMLDocument('');
                 doc.body.innerHTML = data;
+                var allNotifications = $('.tradepoll .notification', doc).length;
+                if (allNotifications) {
+                    sendMessageToContentScript({'tradesNotification' : allNotifications}, appID == 730 ? -1 : -2);
+                }
                 $('.tradepoll', doc).each(function(i, v) {
                     if ($('.notification', v).length) {
                         var notifyAmount = parseInt($('.notification', v).text(), 10);
@@ -480,6 +521,10 @@ function checkForNewTradeOffers(data, appID) {
             success: function(data) {
                 var doc = document.implementation.createHTMLDocument('');
                 doc.body.innerHTML = data;
+                var allNotifications = $('.tradepoll .notification', doc).length;
+                if (allNotifications) {
+                    sendMessageToContentScript({'tradesNotification' : allNotifications}, appID == 730 ? -1 : -2);
+                }
                 $('.tradepoll', doc).each(function(i, v) {
                     if ($('.notification', v).length) {
                         var offerURL = urlStart + $('a[href]:eq(0)', v).attr('href');
@@ -602,6 +647,31 @@ function updateCurrencyConversion(callback) {
     oReq.send();
 }
 
+function updateCsgoloungeItemValues(callback) {
+    console.log('Updating CS:GO Lounge item betting values!');
+
+    $.ajax({
+        url: 'http://csgolounge.com/api/schema.php',
+        success: function(response) {
+            var valueStorage = {};
+
+            $.each(response, function(i, v) {
+                var floatValue = parseFloat(v.worth);
+                if(floatValue > 0) {
+                    valueStorage[v.name] = floatValue;
+                }
+            });
+
+            chrome.storage.local.set({'csglBettingValues': valueStorage});
+            if(callback) callback();
+            console.log('CS:GO Lounge item betting values updated.');
+        },
+        error: function(error) {
+            console.log('Error getting betting values from API', error);
+        }
+    });
+}
+
 function checkForExpiredItems(appID) {
     console.log('Checking for expired items on ' + appID);
     var urlStart = baseURLs[appID];
@@ -680,7 +750,8 @@ var alarms = {
     currencyUpdate: 10080,
     expiredReturnsChecking: 360,
     remoteThemesUpdate: 1440,
-    autoBump: 10
+    autoBump: 10,
+    csglBettingValues: 1440
 };
 
 // make sure we don't create alarms that already exist
@@ -746,6 +817,12 @@ chrome.alarms.onAlarm.addListener(function(alarm) {
     if (alarm.name == 'autoBump') {
         if (['1', '730', '570'].indexOf(LoungeUser.userSettings.autoBump) !== -1) {
             autoBumpTrades();
+        }
+    }
+
+    if (alarm.name == 'csglBettingValues') {
+        if (LoungeUser.userSettings.csglBettingValues === '1') {
+            updateCsgoloungeItemValues();
         }
     }
 });
